@@ -219,7 +219,7 @@
     <div class="widget-container">
         <h1>📚 알라딘 책 검색</h1>
         
-        <div class="config-section">
+        <!-- <div class="config-section">
             <h2>알라딘 API 설정</h2>
             <input 
                 type="text" 
@@ -230,7 +230,7 @@
             <div class="config-note">
                 TTBKey는 <a href="https://www.aladin.co.kr/ttb/api/API_V11.aspx" target="_blank">알라딘 개발자 센터</a>에서 발급받을 수 있습니다. 없어도 검색은 가능하지만 제한이 있을 수 있습니다.
             </div>
-        </div>
+        </div> -->
         
         <!-- <div class="config-section">
             <h2>Notion 설정</h2>
@@ -268,25 +268,32 @@
     <script>
         // 설정 로드 (localStorage에서)
         function loadConfig() {
-            const aladinApiKey = localStorage.getItem('aladinApiKey');
+            // const aladinApiKey = localStorage.getItem('aladinApiKey');
             const notionApiKey = localStorage.getItem('notionApiKey');
             const databaseId = localStorage.getItem('notionDatabaseId');
             
-            if (aladinApiKey) document.getElementById('aladinApiKey').value = aladinApiKey;
+            // if (aladinApiKey) document.getElementById('aladinApiKey').value = aladinApiKey;
             if (notionApiKey) document.getElementById('notionApiKey').value = notionApiKey;
             if (databaseId) document.getElementById('notionDatabaseId').value = databaseId;
         }
 
         // 설정 저장
         function saveConfig() {
-            const aladinApiKey = document.getElementById('aladinApiKey').value.trim();
+            // const aladinApiKey = document.getElementById('aladinApiKey').value.trim();
             const notionApiKey = document.getElementById('notionApiKey').value.trim();
             const databaseId = document.getElementById('notionDatabaseId').value.trim();
             
-            if (aladinApiKey) localStorage.setItem('aladinApiKey', aladinApiKey);
+            // if (aladinApiKey) localStorage.setItem('aladinApiKey', aladinApiKey);
             if (notionApiKey) localStorage.setItem('notionApiKey', notionApiKey);
             if (databaseId) localStorage.setItem('notionDatabaseId', databaseId);
         }
+
+        // CORS 프록시 목록 (먼저 선언)
+        const CORS_PROXIES = [
+            'https://api.allorigins.win/raw?url=',
+            'https://corsproxy.io/?',
+            'https://api.codetabs.com/v1/proxy?quest='
+        ];
 
         // 설정 변경 시 자동 저장
         document.getElementById('aladinApiKey').addEventListener('change', saveConfig);
@@ -296,51 +303,103 @@
         // 페이지 로드 시 설정 불러오기
         loadConfig();
 
-        // 알라딘 Open API를 사용한 검색
+        // CORS 프록시를 통해 요청
+        async function fetchWithProxy(url) {
+            for (const proxy of CORS_PROXIES) {
+                try {
+                    const proxyUrl = proxy + encodeURIComponent(url);
+                    const response = await fetch(proxyUrl);
+                    
+                    if (response.ok) {
+                        return response;
+                    }
+                } catch (error) {
+                    console.log(`프록시 실패, 다음 시도...`);
+                    continue;
+                }
+            }
+            throw new Error('모든 CORS 프록시가 실패했습니다.');
+        }
+
+        // 알라딘 Open API를 사용한 검색 (CORS 프록시 사용)
         async function searchWithAladinAPI(query) {
-            const apiKey = document.getElementById('aladinApiKey').value.trim();
+            // const apiKey = document.getElementById('aladinApiKey').value.trim();
+            const apiKey = 'ttbaaung77462315001';
             
             // TTBKey가 있으면 Open API 사용
             if (apiKey) {
-                const apiUrl = `https://www.aladin.co.kr/ttb/api/ItemSearch.aspx?ttbkey=${encodeURIComponent(apiKey)}&Query=${encodeURIComponent(query)}&QueryType=Title&MaxResults=10&start=1&SearchTarget=Book&output=xml&Version=20131101`;
+                // JSON 형식으로 요청 (XML 대신)
+                const apiUrl = `https://www.aladin.co.kr/ttb/api/ItemSearch.aspx?ttbkey=${encodeURIComponent(apiKey)}&Query=${encodeURIComponent(query)}&QueryType=Title&MaxResults=10&start=1&SearchTarget=Book&output=js&Version=20131101`;
                 
                 try {
-                    const response = await fetch(apiUrl);
-                    const xmlText = await response.text();
+                    // CORS 프록시를 통해 호출
+                    const response = await fetchWithProxy(apiUrl);
+                    const text = await response.text();
                     
-                    // XML 파싱
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-                    
-                    const items = xmlDoc.querySelectorAll('item');
-                    const books = [];
-                    
-                    items.forEach(item => {
-                        const title = item.querySelector('title')?.textContent || '';
-                        const author = item.querySelector('author')?.textContent || '정보 없음';
-                        const coverImg = item.querySelector('cover')?.textContent || '';
-                        const link = item.querySelector('link')?.textContent || '';
-                        const itemId = item.querySelector('itemId')?.textContent || '';
-                        
-                        if (title && coverImg) {
-                            books.push({
-                                title,
-                                author,
-                                coverImg,
-                                link,
-                                itemId
-                            });
+                    // JSON 파싱 (알라딘 API는 JSONP 형식으로 반환하므로 처리 필요)
+                    let jsonData;
+                    try {
+                        // JSONP 형식인 경우 콜백 함수 제거
+                        if (text.startsWith('callback(')) {
+                            const jsonText = text.replace(/^callback\(/, '').replace(/\);?\s*$/, '');
+                            jsonData = JSON.parse(jsonText);
+                        } else {
+                            jsonData = JSON.parse(text);
                         }
-                    });
+                    } catch (parseError) {
+                        // JSON 파싱 실패 시 XML로 시도
+                        const xmlUrl = apiUrl.replace('output=js', 'output=xml');
+                        const xmlResponse = await fetchWithProxy(xmlUrl);
+                        const xmlText = await xmlResponse.text();
+                        
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                        
+                        const items = xmlDoc.querySelectorAll('item');
+                        const books = [];
+                        
+                        items.forEach(item => {
+                            const title = item.querySelector('title')?.textContent || '';
+                            const author = item.querySelector('author')?.textContent || '정보 없음';
+                            const coverImg = item.querySelector('cover')?.textContent || '';
+                            const link = item.querySelector('link')?.textContent || '';
+                            const itemId = item.querySelector('itemId')?.textContent || '';
+                            
+                            if (title && coverImg) {
+                                books.push({
+                                    title,
+                                    author,
+                                    coverImg,
+                                    link,
+                                    itemId
+                                });
+                            }
+                        });
+                        
+                        return books;
+                    }
                     
-                    return books;
+                    // JSON 데이터 처리
+                    if (jsonData.item && Array.isArray(jsonData.item)) {
+                        const books = jsonData.item.map(item => ({
+                            title: item.title || '',
+                            author: item.author || '정보 없음',
+                            coverImg: item.cover || '',
+                            link: item.link || '',
+                            itemId: item.itemId || ''
+                        })).filter(book => book.title && book.coverImg);
+                        
+                        return books;
+                    }
+                    
+                    return [];
                 } catch (error) {
                     console.error('알라딘 API 오류:', error);
-                    throw new Error('알라딘 API 검색 실패');
+                    throw new Error('알라딘 API 검색 실패: ' + error.message);
                 }
             }
             
-            // TTBKey가 없으면 null 반환 (다른 방법 시도)
+            // TTBKey가 없으면 null 반환
             return null;
         }
 
